@@ -8,14 +8,14 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# --- আপনার দেওয়া ডেটা সরাসরি যুক্ত করা হলো ---
+# --- আপনার দেওয়া ক্রেডেনশিয়াল ও কনফিগারেশন ---
 TELEGRAM_BOT_TOKEN = "6941432294:AAHNxdm6YPCtsZ4tZTYCVx8bylxhXRsT0Bw"
 TELEGRAM_CHAT_ID = "7504616242"
 SITE_URL = "https://ictex.iceiy.com"
 EMAIL = "mdg145712@gmail.com"
 PASSWORD = "nayem544"
 
-# আপনার রিকোয়েস্ট করা সকল টাইমফ্রেম এখানে ম্যাপ করা হয়েছে
+# টাইমফ্রেম ম্যাপিং
 TF_MAP = {
     "1m": "60",
     "2m": "120",
@@ -52,7 +52,7 @@ def main():
         print("ভুল টাইমফ্রেম সিলেক্ট করা হয়েছে!")
         return
 
-    # ডিরেকশন অনুযায়ী ইমোজি ও সুন্দর ফরম্যাটিং সেট করা
+    # ডিরেকশন অনুযায়ী সুন্দর ইমোজি ও ফরম্যাটিং সেট করা
     if direction in ["BUY", "CALL", "UP"]:
         direction_formatted = "🟢 *BUY / CALL (UP)* 📈"
     elif direction in ["SELL", "PUT", "DOWN"]:
@@ -60,14 +60,18 @@ def main():
     else:
         direction_formatted = f"⚡ *{direction}*"
 
+    # ক্রোম ব্রাউজারের হেডলেস ও সিকিউরিটি অপশন কনফিগারেশন
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    chrome_options.add_argument("--remote-debugging-port=9222")
     chrome_options.add_argument("--window-size=375,812") 
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
 
-    # লোকাল ক্রোমড্রাইভার ব্যবহার করে মোবাইল আর্কিটেকচার এরর সমাধান করা হলো
+    # লোকাল মোবাইল প্রসেসর আর্কিটেকচার ড্রাইভার লোড করা হচ্ছে
     service = Service(executable_path='/usr/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=chrome_options)
     wait = WebDriverWait(driver, 20)
@@ -121,6 +125,7 @@ def main():
 
         time.sleep(2)
 
+        # টাইমফ্রেম পরিবর্তন
         print(f"টাইমফ্রেম পরিবর্তন করা হচ্ছে: {timeframe}")
         tf_btn = wait.until(EC.element_to_be_clickable((By.ID, "chart-timeframe-btn")))
         tf_btn.click()
@@ -148,7 +153,7 @@ def main():
         driver.save_screenshot(screenshot_path)
         print("স্ক্রিনশট নেওয়া সম্পন্ন হয়েছে।")
 
-        # টেলিগ্রামের জন্য সিগন্যাল মেসেজ সাজানো হচ্ছে
+        # টেলিগ্রামের জন্য সিগন্যাল মেসেজ ফরম্যাটিং
         caption = (
             f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
             f"━━━━━━━━━━━━━━━━━━\n"
