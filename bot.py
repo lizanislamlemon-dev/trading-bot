@@ -1,7 +1,6 @@
 import os
 import time
 import json
-import re
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
@@ -67,8 +66,8 @@ def generate_premium_signal_card(market, timeframe, direction, trade_time, outpu
     draw.text((95, 145), market.upper(), fill="#FFFFFF", font=font_value)
 
     # Expiry Timeframe
-    draw.text((95, 210), "TIMEFRAME / DURATION", fill="#64748B", font=font_label_caps if 'font_label_caps' in globals() else None)
-    draw.text((95, 224), f"⏳ {timeframe.upper()}", fill="#B6C4FF", font=font_value)
+    draw.text((95, 210), "TIMEFRAME / DURATION", fill="#64748B", font=font_label)
+    draw.text((95, 235), timeframe.upper(), fill="#38BDF8", font=font_value)
 
     # Trade Direction
     draw.text((95, 300), "TRADE ACTION", fill="#64748B", font=font_label)
@@ -82,7 +81,7 @@ def generate_premium_signal_card(market, timeframe, direction, trade_time, outpu
     draw.ellipse([w - 95, 54, w - 75, 74], fill=theme_color)
 
     # Sleek Professional Watermark Footer
-    draw.text((75, h - 22), "BOT BY: KING VIP TRADER | @kingviptrader", fill="#475569", font=font_footer)
+    draw.text((75, h - 22), "BOT BY: KING VIP TRADER | @king_vip_trader", fill="#475569", font=font_footer)
 
     img.save(output_path)
     return True
@@ -171,45 +170,56 @@ def handle_result_reporting(msg_id, market):
     print("\n========================================")
     print("             REPORT RESULT              ")
     print("========================================")
-    print("[1] WIN (Direct ITM)")
-    print("[2] LOSS (OTM)")
-    print("[3] REFUND (PUSH)")
-    print("[4] Skip Result")
-    choice = input("Select Result (1/2/3/4): ").strip()
+    print("[1] DIRECT WIN (1000% SURESHOT NON MTG)")
+    print("[2] MTG 1 WIN (SURESHOT MTG 1)")
+    print("[3] LOSS (OTM)")
+    print("[4] REFUND (PUSH)")
+    print("[5] Skip Result")
+    choice = input("Select Result (1/2/3/4/5): ").strip()
     
-    if choice == "4":
+    if choice == "5":
         print("Result reporting skipped.")
         return
 
     if choice == "1":
         result_text = (
-            f"🏆 *DIRECT WIN (ITM)* 🏆\n"
+            f"🏆 *1000% SURESHOT NON MTG* 🏆\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 *Asset:* {market.upper()}\n"
-            f"📊 *Result:* ✅ *WINNER!*\n"
+            f"📊 *Result:* ✅ *DIRECT WIN!*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 *Channel:* @kingviptrader\n"
-            f"👑 *Owner:* @kingviptrader"
+            f"📢 *Channel:* @king_vip_trader\n"
+            f"👑 *Owner:* @king_vip_trader"
         )
     elif choice == "2":
+        result_text = (
+            f"🏆 *SURESHOT MTG 1* 🏆\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 *Asset:* {market.upper()}\n"
+            f"📊 *Result:* ✅ *MTG 1 WIN!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📢 *Channel:* @king_vip_trader\n"
+            f"👑 *Owner:* @king_vip_trader"
+        )
+    elif choice == "3":
         result_text = (
             f"🛑 *OTM (LOSS)* 🛑\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 *Asset:* {market.upper()}\n"
             f"📊 *Result:* ❌ *LOSS*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 *Channel:* @kingviptrader\n"
-            f"👑 *Owner:* @kingviptrader"
+            f"📢 *Channel:* @king_vip_trader\n"
+            f"👑 *Owner:* @king_vip_trader"
         )
-    elif choice == "3":
+    elif choice == "4":
         result_text = (
             f"🔄 *TRADE REFUND (PUSH)* 🔄\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 *Asset:* {market.upper()}\n"
             f"📊 *Result:* 🤝 *REFUND*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 *Channel:* @kingviptrader\n"
-            f"👑 *Owner:* @kingviptrader"
+            f"📢 *Channel:* @king_vip_trader\n"
+            f"👑 *Owner:* @king_vip_trader"
         )
     else:
         print("Invalid choice, result skipped.")
@@ -246,8 +256,8 @@ def main():
         f"🚀 *Action:* {direction_formatted}\n"
         f"⏰ *Entry Time:* {trade_time.upper()}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📢 *Channel:* KING VIP TRADER | @kingviptrader\n"
-        f"👑 *Owner ID:* @kingviptrader\n"
+        f"📢 *Channel:* KING VIP TRADER | @king_vip_trader\n"
+        f"👑 *Owner ID:* @king_vip_trader\n"
         f"⚠️ _Proper money management is advised._"
     )
 
