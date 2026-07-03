@@ -1,19 +1,18 @@
 import os
 import time
 import json
+import re
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
 # --- CONFIGURATION ---
 TELEGRAM_BOT_TOKEN = "6941432294:AAHNxdm6YPCtsZ4tZTYCVx8bylxhXRsT0Bw"
+TELEGRAM_CHAT_ID = "7504616242"
 SITE_URL = "https://ictex.iceiy.com"
 
-# --- মাল্টি-চ্যানেল ব্রডকাস্ট লিস্ট ---
-# এখানে আপনি যত খুশি চ্যানেলের ইউজারনেম (অবশ্যই @ সহ) যুক্ত করতে পারবেন।
-# বটটি যে যে চ্যানেলে অ্যাডমিন আছে, সবগুলোতে একসঙ্গে সিগন্যাল ও রেজাল্ট চলে যাবে।
+# মাল্টি-চ্যানেল ব্রডকাস্ট লিস্ট
 TELEGRAM_CHAT_IDS = [
     "@king_vip_trader",
-    # "@your_second_channel_username", # অন্য চ্যানেল থাকলে এভাবে কমা দিয়ে যুক্ত করুন
 ]
 
 # টাইমফ্রেম সেকেন্ডস ম্যাপিং
@@ -77,80 +76,67 @@ def aggregate_candles(candles, tf_seconds):
         
     return aggregated
 
-# সরাসরি ডাটাবেজ থেকে ক্যান্ডেল ডেটা নিয়ে চার্ট ইমেজ তৈরি করার ফাংশন
+# প্রিমিয়াম ড্যাশবোর্ড থিমযুক্ত সিগন্যাল কার্ড (Image) তৈরি করার ফাংশন
 def generate_premium_signal_card(market, timeframe, direction, trade_time, output_path="signal_card.png"):
     w, h = 800, 480
-    # প্রিমিয়াম ডার্ক থিম ব্যাকগ্রাউন্ড
-    img = Image.new("RGB", (w, h), "#060913")
+    # Obsidian dark high-tech background
+    img = Image.new("RGB", (w, h), "#080B10")
     draw = ImageDraw.Draw(img, "RGBA")
 
     # নিয়ন কালার থিম নির্ধারণ
     is_up = direction.upper() in ["BUY", "CALL", "UP", "GREEN", "🟢"]
     theme_color = "#00E676"  # Electric Neon Green
-    theme_color_rgba = (0, 230, 118)
     if not is_up:
         theme_color = "#FF1744"  # Electric Neon Red
-        theme_color_rgba = (255, 23, 68)
 
     action_text = "CALL / BUY (UP)" if is_up else "PUT / SELL (DOWN)"
 
     # Loading system fonts
     try:
         font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_title = ImageFont.whites = None
+        font_status = ImageFont.truetype(font_path, 11)
         font_title = ImageFont.truetype(font_path, 25)
-        font_label = ImageFont.truetype(font_path, 13)
-        font_value = ImageFont.truetype(font_path, 30)
-        font_time = ImageFont.truetype(font_path, 42)
-        font_footer = ImageFont.truetype(font_path, 12)
+        font_label = ImageFont.truetype(font_path, 12)
+        font_value = ImageFont.truetype(font_path, 28)
+        font_time = ImageFont.truetype(font_path, 46)
+        font_footer = ImageFont.truetype(font_path, 11)
     except:
-        font_title = font_label = font_value = font_time = font_footer = ImageFont.load_default()
+        font_status = font_title = font_label = font_value = font_time = font_footer = ImageFont.load_default()
 
-    # ১. বাম পাশে নিয়ন কালার স্ট্রিপ আঁকা
-    draw.rectangle([0, 0, 16, h], fill=theme_color)
+    # ১. প্রধান ফ্রেম বর্ডার আঁকা
+    draw.rounded_rectangle([30, 30, w - 30, h - 30], radius=18, outline="#1E293B", width=2)
 
-    # ২. Draw Realistic Neon Glow Outer Border (Double Layer Glow)
-    for offset in range(1, 5):
-        alpha = int(120 / offset)
-        glow_color = (theme_color_rgba[0], theme_color_rgba[1], theme_color_rgba[2], alpha)
-        draw.rounded_rectangle(
-            [45 - offset, 30 - offset, w - 30 + offset, h - 30 + offset],
-            radius=15,
-            outline=glow_color,
-            width=1
-        )
-    # Base solid inner border
-    draw.rounded_rectangle([45, 30, w - 30, h - 30], radius=15, outline="#1E293B", width=2)
+    # ২. ওপরের ছোট স্ট্যাটাস বার
+    draw.rounded_rectangle([60, 45, 260, 70], radius=8, fill=(30, 41, 59, 150), outline="#334155", width=1)
+    draw.ellipse([75, 55, 83, 63], fill=theme_color)
+    draw.text((95, 51), "SIGNAL TERMINAL", fill="#94A3B8", font=font_status)
 
-    # 3. Header Wordmark
-    draw.text((75, 52), "💎 IX BROKER VIP SIGNAL 💎", fill="#94A3B8", font=font_title)
+    # ৩. প্রধান শিরোনাম
+    draw.text((290, 43), "IX BROKER VIP SIGNAL", fill="#FFFFFF", font=font_title)
 
-    # 4. Glassmorphism Styled Panels
-    draw.rounded_rectangle([70, 100, 420, 390], radius=12, fill=(15, 23, 42, 220), outline="#1E293B", width=2)
-    draw.rounded_rectangle([450, 100, w - 60, 390], radius=12, fill=(15, 23, 42, 220), outline="#1E293B", width=2)
+    # ৪. সুবিন্যস্ত ট্রেডিং ড্যাশবোর্ড বক্সসমূহ (SaaS Panel Layout)
+    # ক) অ্যাসেট বক্স
+    draw.rounded_rectangle([60, 95, 430, 195], radius=12, fill=(22, 27, 34, 240), outline="#1F2937", width=1)
+    draw.text((85, 112), "ASSET NAME", fill="#57606A", font=font_label)
+    draw.text((85, 137), market.upper(), fill="#F0F6FC", font=font_value)
 
-    # Left Panel: Trade Details
-    # Asset Name
-    draw.text((95, 120), "MARKET / ASSET", fill="#64748B", font=font_label)
-    draw.text((95, 145), market.upper(), fill="#FFFFFF", font=font_value)
+    # খ) ডিউরেশন বক্স
+    draw.rounded_rectangle([60, 210, 430, 310], radius=12, fill=(22, 27, 34, 240), outline="#1F2937", width=1)
+    draw.text((85, 227), "TRADE DURATION", fill="#57606A", font=font_label)
+    draw.text((85, 252), f"⏳ {timeframe.upper()}", fill="#B6C4FF", font=font_value)
 
-    # Expiry Timeframe
-    draw.text((95, 210), "TIMEFRAME / DURATION", fill="#64748B", font=font_label)
-    draw.text((95, 235), timeframe.upper(), fill="#38BDF8", font=font_value)
+    # গ) অ্যাকশন বক্স (থিম কালার নিয়ন আউটলাইন সহ)
+    draw.rounded_rectangle([60, 325, 430, 425], radius=12, fill=(22, 27, 34, 240), outline=theme_color, width=2)
+    draw.text((85, 342), "EXPECTED ACTION", fill="#57606A", font=font_label)
+    draw.text((85, 367), action_text, fill=theme_color, font=font_value)
 
-    # Trade Direction
-    draw.text((95, 300), "TRADE ACTION", fill="#64748B", font=font_label)
-    draw.text((95, 325), action_text, fill=theme_color, font=font_value)
+    # ঘ) ক্লক প্যানেল বক্স (ডান পাশের বক্স)
+    draw.rounded_rectangle([455, 95, w - 60, 425], radius=12, fill=(13, 17, 23, 240), outline="#1F2937", width=1)
+    draw.text((490, 160), "ENTRY CLOCK TIME", fill="#57606A", font=font_label)
+    draw.text((490, 210), trade_time.upper(), fill="#FBBF24", font=font_time)
 
-    # Right Panel: Clock Setup
-    draw.text((480, 180), "ENTRY TIME (CLOCK)", fill="#64748B", font=font_label)
-    draw.text((480, 210), trade_time.upper(), fill="#FBBF24", font=font_time)
-
-    # Upper Corner Indicator Dot
-    draw.ellipse([w - 95, 54, w - 75, 74], fill=theme_color)
-
-    # Sleek Professional Watermark Footer
-    draw.text((75, h - 22), "BOT BY: KING VIP TRADER | @king_vip_trader", fill="#475569", font=font_footer)
+    # ৫. নিচে ওয়াটারমার্ক সিগনেচার
+    draw.text((60, h - 22), "BOT BY: KING VIP TRADER | @king_vip_trader", fill="#475569", font=font_footer)
 
     img.save(output_path)
     return True
@@ -274,7 +260,7 @@ def handle_result_reporting(sent_messages, market):
             f"🎯 *Asset:* {market.upper()}\n"
             f"📊 *Result:* ✅ *DIRECT WIN!*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📢 *Channel:* @king_vip_trader\n"
+            f"📢 *Channel:* KING VIP TRADER\n"
             f"👑 *Owner:* @king_vip_trader"
         )
     elif choice == "2":
@@ -284,7 +270,7 @@ def handle_result_reporting(sent_messages, market):
             f"🎯 *Asset:* {market.upper()}\n"
             f"📊 *Result:* ✅ *MTG 1 WIN!*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📢 *Channel:* @king_vip_trader\n"
+            f"📢 *Channel:* KING VIP TRADER\n"
             f"👑 *Owner:* @king_vip_trader"
         )
     elif choice == "3":
@@ -294,7 +280,7 @@ def handle_result_reporting(sent_messages, market):
             f"🎯 *Asset:* {market.upper()}\n"
             f"📊 *Result:* ❌ *LOSS*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📢 *Channel:* @king_vip_trader\n"
+            f"📢 *Channel:* KING VIP TRADER\n"
             f"👑 *Owner:* @king_vip_trader"
         )
     elif choice == "4":
@@ -304,7 +290,7 @@ def handle_result_reporting(sent_messages, market):
             f"🎯 *Asset:* {market.upper()}\n"
             f"📊 *Result:* 🤝 *REFUND*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📢 *Channel:* @king_vip_trader\n"
+            f"📢 *Channel:* KING VIP TRADER\n"
             f"👑 *Owner:* @king_vip_trader"
         )
     else:
@@ -329,7 +315,7 @@ def main():
     else:
         direction_formatted = f"⚡ *{direction}*"
 
-    # Styled Telegram Caption
+    # Styled Telegram Caption (রিপ্লেসমেন্ট সম্পন্ন)
     caption = (
         f"📊 *IX BROKER PREMIUM SIGNAL* 📊\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -338,7 +324,7 @@ def main():
         f"🚀 *Action:* {direction_formatted}\n"
         f"⏰ *Entry Time:* {trade_time.upper()}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📢 *Channel:* @king_vip_trader\n"
+        f"📢 *Channel:* KING VIP TRADER\n"
         f"👑 *Owner ID:* @king_vip_trader\n"
         f"⚠️ _Proper money management is advised._"
     )
