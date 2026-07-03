@@ -1,5 +1,6 @@
 import os
 import time
+import shutil
 import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -71,8 +72,31 @@ def main():
     chrome_options.add_argument("--window-size=375,812") 
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
 
-    # লোকাল মোবাইল প্রসেসর আর্কিটেকচার ড্রাইভার লোড করা হচ্ছে
-    service = Service(executable_path='/usr/bin/chromedriver')
+    # --- স্বয়ংক্রিয়ভাবে ক্রোমড্রাইভার লোকেশন খোঁজার লজিক ---
+    possible_paths = [
+        "/usr/bin/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+        "/usr/lib/chromium/chromedriver",
+        "/usr/bin/chromium-driver"
+    ]
+    driver_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            driver_path = path
+            break
+            
+    if not driver_path:
+        # সিস্টেম পাথে খোঁজা হচ্ছে
+        driver_path = shutil.which("chromedriver") or shutil.which("chromium-driver")
+
+    if not driver_path:
+        print("Error: আপনার সিস্টেমে ক্রোমড্রাইভার ফাইলটি খুঁজে পাওয়া যায়নি!")
+        return
+
+    print(f"ড্রাইভারের লোকেশন পাওয়া গেছে: {driver_path}")
+
+    # ড্রাইভার সার্ভিস চালু করা
+    service = Service(executable_path=driver_path)
     driver = webdriver.Chrome(service=service, options=chrome_options)
     wait = WebDriverWait(driver, 20)
 
