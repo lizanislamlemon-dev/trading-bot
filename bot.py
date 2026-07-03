@@ -1,74 +1,97 @@
 import os
 import time
+import json
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
 # --- কনফিগারেশন ---
 TELEGRAM_BOT_TOKEN = "6941432294:AAHNxdm6YPCtsZ4tZTYCVx8bylxhXRsT0Bw"
 TELEGRAM_CHAT_ID = "7504616242"
+SITE_URL = "https://ictex.iceiy.com"
 
-# দৃষ্টিনন্দন প্রফেশনাল সিগন্যাল কার্ড (Image) তৈরি করার ফাংশন
+# প্রিমিয়াম নিয়ন থিমযুক্ত সিগন্যাল কার্ড (Image) তৈরি করার ফাংশন
 def generate_premium_signal_card(market, timeframe, direction, trade_time, output_path="signal_card.png"):
-    w, h = 800, 450
-    # ডার্ক থিম ব্যাকগ্রাউন্ড
-    img = Image.new("RGB", (w, h), "#080B11")
+    w, h = 800, 480
+    # প্রিমিয়াম ডার্ক থিম ব্যাকগ্রাউন্ড
+    img = Image.new("RGB", (w, h), "#070B12")
     draw = ImageDraw.Draw(img)
 
-    # ডিরেকশন অনুযায়ী থিম কালার সিলেক্ট (সবুজ অথবা লাল)
+    # নিয়ন কালার থিম নির্ধারণ
     is_up = direction.upper() in ["BUY", "CALL", "UP", "GREEN", "🟢"]
-    theme_color = "#0CCF56" if is_up else "#FF4D5E"
+    theme_color = "#00E676" if is_up else "#FF1744"  # নিয়ন গ্রিন অথবা নিয়ন রেড
     action_text = "CALL / BUY (UP)" if is_up else "PUT / SELL (DOWN)"
 
-    # সিস্টেমে থাকা ডেজাভু ফন্ট লোড করা (ফন্ট সাইজ সুন্দর করার জন্য)
+    # সিস্টেমে থাকা ডেজাভু ফন্ট লোড করা
     try:
         font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_title = ImageFont.truetype(font_path, 22)
-        font_label = ImageFont.truetype(font_path, 15)
-        font_value = ImageFont.truetype(font_path, 34)
-        font_time = ImageFont.truetype(font_path, 40)
+        font_title = ImageFont.truetype(font_path, 24)
+        font_label = ImageFont.truetype(font_path, 13)
+        font_value = ImageFont.truetype(font_path, 30)
+        font_time = ImageFont.truetype(font_path, 42)
+        font_footer = ImageFont.truetype(font_path, 12)
     except:
-        font_title = font_label = font_value = font_time = ImageFont.load_default()
+        font_title = font_label = font_value = font_time = font_footer = ImageFont.load_default()
 
-    # ১. বাম পাশে প্রফেশনাল কালার বর্ডার আঁকা
-    draw.rectangle([0, 0, 18, h], fill=theme_color)
+    # ১. বাম পাশে নিয়ন কালার স্ট্রিপ আঁকা
+    draw.rectangle([0, 0, 16, h], fill=theme_color)
 
-    # ২. চারপাশের সূক্ষ্ম ফ্রেম
-    draw.rectangle([40, 25, w - 25, h - 25], outline="#1F2937", width=2)
+    # ২. চারপাশের সূক্ষ্ম ডাবল ফ্রেম
+    draw.rounded_rectangle([45, 30, w - 30, h - 30], radius=15, outline="#1E293B", width=3)
 
-    # ৩. হেডার টেক্সট
-    draw.text((60, 45), "⚡ ICTEX OFFICIAL VIP SIGNAL ⚡", fill="#707A8A", font=font_title)
+    # ৩. হেডার টাইটেল
+    draw.text((70, 50), "🏆 IX BROKER VIP SIGNAL 🏆", fill="#94A3B8", font=font_title)
 
-    # ৪. মার্কেট ইনফো
-    draw.text((60, 105), "MARKET / ASSET", fill="#707A8A", font=font_label)
-    draw.text((60, 130), market.upper(), fill="#FFFFFF", font=font_value)
+    # ৪. গ্লাস ইফেক্ট সাব-প্যানেল (বাম পাশের প্যারামিটার বক্স)
+    draw.rounded_rectangle([70, 100, 420, 390], radius=10, fill="#0F172A", outline="#1E293B", width=2)
+    
+    # ৫. গ্লাস ইফেক্ট সাব-প্যানেল (ডান পাশের টাইম বক্স)
+    draw.rounded_rectangle([450, 100, w - 60, 390], radius=10, fill="#0F172A", outline="#1E293B", width=2)
 
-    # ৫. টাইমফ্রেম
-    draw.text((60, 210), "TIMEFRAME", fill="#707A8A", font=font_label)
-    draw.text((60, 235), timeframe.upper(), fill="#3B82F6", font=font_value)
+    # বাম প্যানেলের টেক্সট রেন্ডারিং
+    # মার্কেট নাম
+    draw.text((90, 120), "MARKET / ASSET", fill="#64748B", font=font_label)
+    draw.text((90, 145), market.upper(), fill="#FFFFFF", font=font_value)
 
-    # ৬. ডিরেকশন / অ্যাকশন
-    draw.text((60, 315), "ACTION / DIRECTION", fill="#707A8A", font=font_label)
-    draw.text((60, 340), action_text, fill=theme_color, font=font_value)
+    # টাইমফ্রেম
+    draw.text((90, 210), "TIMEFRAME / DURATION", fill="#64748B", font=font_label)
+    draw.text((90, 235), timeframe.upper(), fill="#38BDF8", font=font_value)
 
-    # ৭. ট্রেড নেওয়ার সময় (ডানপাশে গোল্ডেন কালার হাইলাইট)
-    draw.text((460, 210), "ENTRY TIME (CLOCK)", fill="#707A8A", font=font_label)
-    draw.text((460, 235), trade_time.upper(), fill="#FFC107", font=font_time)
+    # ডিরেকশন
+    draw.text((90, 300), "ACTION / DIRECTION", fill="#64748B", font=font_label)
+    draw.text((90, 325), action_text, fill=theme_color, font=font_value)
 
-    # ৮. কোণায় ইন্ডিকেটর লাইট (গ্লো ইফেক্ট)
-    draw.ellipse([w - 65, 45, w - 45, 65], fill=theme_color)
+    # ডান প্যানেলের টেক্সট রেন্ডারিং (ট্রেড নেওয়ার সময়)
+    draw.text((480, 180), "ENTRY TIME (CLOCK)", fill="#64748B", font=font_label)
+    draw.text((480, 210), trade_time.upper(), fill="#FBBF24", font=font_time)
 
-    # ইমেজটি সেভ করা
+    # ডান কোণায় ইন্ডিকেটর গ্লো লাইট
+    draw.ellipse([w - 95, 52, w - 75, 72], fill=theme_color)
+
+    # ৯. ওয়াটারমার্ক সিগনেচার
+    draw.text((70, h - 22), "Bot by: KING VIP TRADER | @kingviptrader", fill="#475569", font=font_footer)
+
     img.save(output_path)
     return True
 
 def send_telegram_photo(photo_path, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    
+    # ওয়ান-ক্লিক লিংক ওপেন করার জন্য ইনলাইন কিবোর্ড বাটন পে-লোড তৈরি
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "🌐 Open IX Broker 🌐", "url": SITE_URL}
+            ]
+        ]
+    }
+    
     with open(photo_path, 'rb') as photo:
         files = {'photo': photo}
         data = {
             'chat_id': TELEGRAM_CHAT_ID,
             'caption': caption,
-            'parse_mode': 'Markdown'
+            'parse_mode': 'Markdown',
+            'reply_markup': json.dumps(reply_markup)  # JSON টেক্সট হিসেবে পাঠাতে হবে
         }
         try:
             response = requests.post(url, files=files, data=data)
@@ -78,14 +101,14 @@ def send_telegram_photo(photo_path, caption):
             return {}
 
 def main():
-    # অ্যাডমিন প্যানেল থেকে ইনপুট
+    # অ্যাডমিন ইনপুট
     market = input("Enter Market Name (e.g., USD/BDT (OTC)): ").strip()
     timeframe = input("Enter Timeframe (e.g., 1m, 5m): ").strip()
     direction = input("Enter Direction (BUY / SELL / CALL / PUT): ").strip().upper()
     trade_time = input("Enter Entry Time (e.g., 10:45 PM): ").strip()
 
-    # ইমেজ কার্ড জেনারেট করা হচ্ছে
-    print("সিগন্যাল কার্ড ইমেজ তৈরি করা হচ্ছে...")
+    # প্রফেশনাল ইমেজ জেনারেট করা হচ্ছে
+    print("প্রিমিয়াম সিগন্যাল কার্ড ইমেজ তৈরি করা হচ্ছে...")
     generate_premium_signal_card(market, timeframe, direction, trade_time)
 
     if direction in ["BUY", "CALL", "UP"]:
@@ -95,15 +118,16 @@ def main():
     else:
         direction_formatted = f"⚡ *{direction}*"
 
-    # টেলিগ্রাম মেসেজ সাজানো
+    # টেলিগ্রামের জন্য আকর্ষণীয় মেসেজ ক্যাপশন সাজানো
     caption = (
-        f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 *IX BROKER PREMIUM SIGNAL* 📊\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🎯 *Asset:* {market.upper()}\n"
         f"⏱ *Duration:* {timeframe.upper()}\n"
         f"🚀 *Action:* {direction_formatted}\n"
         f"⏰ *Entry Time:* {trade_time.upper()}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 *Bot by:* KING VIP TRADER | @kingviptrader\n"
         f"⚠️ _Proper money management ব্যবহার করুন।_"
     )
 
