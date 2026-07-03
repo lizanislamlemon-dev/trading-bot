@@ -8,25 +8,101 @@ TELEGRAM_BOT_TOKEN = "6941432294:AAHNxdm6YPCtsZ4tZTYCVx8bylxhXRsT0Bw"
 TELEGRAM_CHAT_ID = "7504616242"
 FIREBASE_URL = "https://ictex-trade-default-rtdb.firebaseio.com"
 
-# মার্কেট আইডিকে ডাটাবেজ পাথে রূপান্তর করার ফাংশন (আপনার সার্ভার ফাইল অনুযায়ী)
-def get_market_path(market_id):
-    return String_clean(market_id).replace(".", "-").replace("/", "-").replace(" ", "-").lower()
+# টাইমফ্রেম সেকেন্ডস ম্যাপিং
+TF_MAP = {
+    "1m": 60,
+    "2m": 120,
+    "3m": 180,
+    "4m": 240,
+    "5m": 300,
+    "10m": 600,
+    "15m": 900
+}
 
-def String_clean(val):
-    return str(val) if val is not None else ""
+# ডাটাবেজ থেকে অ্যাক্টিভ মার্কেট লিস্ট সংগ্রহ করা
+def get_active_markets():
+    url = f"{FIREBASE_URL}/admin/markets.json"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        if not data:
+            return []
+        
+        active_list = []
+        for m_id, m_info in data.items():
+            if m_info.get("status") == "active":
+                active_list.append({
+                    "id": m_id,
+                    "name": m_info.get("name", m_id),
+                    "type": m_info.get("type", "real")
+                })
+        # নাম অনুযায়ী বর্ণানুক্রমিকভাবে সাজানো
+        active_list.sort(key=lambda x: x["name"])
+        return active_list
+    except Exception as e:
+        print(f"Error fetching markets: {e}")
+        return []
+
+# ১ মিনিটের ক্যান্ডেলকে রিকোয়েস্ট করা টাইমফ্রেমে রূপান্তর করার লজিক
+def aggregate_candles(candles, tf_seconds):
+    if tf_seconds == 60:
+        return candles
+        
+    aggregated = []
+    current_group = []
+    
+    for c in candles:
+        group_start = (c['timestamp'] // (tf_seconds * 1000)) * (tf_seconds * 1000)
+        
+        if current_group and current_group[0]['timestamp'] != group_start:
+            open_p = current_group[0]['open']
+            close_p = current_group[-1]['close']
+            high_p = max(item['high'] for item in current_group)
+            low_p = min(item['low'] for item in current_group)
+            
+            aggregated.append({
+                "timestamp": current_group[0]['timestamp'],
+                "open": open_p,
+                "high": high_p,
+                "low": low_p,
+                "close": close_p
+            })
+            current_group = []
+            
+        c_copy = c.copy()
+        c_copy['timestamp'] = group_start
+        current_group.append(c_copy)
+        
+    if current_group:
+        open_p = current_group[0]['open']
+        close_p = current_group[-1]['close']
+        high_p = max(item['high'] for item in current_group)
+        low_p = min(item['low'] for item in current_group)
+        aggregated.append({
+            "timestamp": current_group[0]['timestamp'],
+            "open": open_p,
+            "high": high_p,
+            "low": low_p,
+            "close": close_p
+        })
+        
+    return aggregated
 
 # সরাসরি ডাটাবেজ থেকে ক্যান্ডেল ডেটা নিয়ে চার্ট ইমেজ তৈরি করার ফাংশন
-def generate_chart_image(market_path, output_path="chart_signal.png"):
-    # ফায়ারবেস থেকে শেষ ৪০টি ক্যান্ডেল রিড করা হচ্ছে
-    url = f"{FIREBASE_URL}/markets/{market_path}/candles/60s.json?orderBy=\"$key\"&limitToLast=40"
+def generate_chart_image(market_path, tf_seconds, output_path="chart_signal.png"):
+    # রিকোয়েস্ট করা টাইমফ্রেম অনুযায়ী পর্যাপ্ত ক্যান্ডেল নিয়ে আসা (সর্বোচ্চ ৪০টি বার দেখানোর জন্য)
+    limit_count = 40 * (tf_seconds // 60)
+    url = f"{FIREBASE_URL}/markets/{market_path}/candles/60s.json?orderBy=\"$key\"&limitToLast={limit_count}"
+    
     try:
         response = requests.get(url)
         data = response.json()
         if not data:
             return False
         
-        # টাইমস্ট্যাম্প অনুযায়ী ক্যান্ডেল সাজানো
-        candles = [data[key] for key in sorted(data.keys())]
+        raw_candles = [data[key] for key in sorted(data.keys())]
+        # ক্যান্ডেলগুলোকে সিলেক্টেড টাইমফ্রেমে কনভার্ট করা
+        candles = aggregate_candles(raw_candles, tf_seconds)[-40:]
     except Exception as e:
         print(f"Data fetch error: {e}")
         return False
@@ -104,17 +180,47 @@ def send_telegram_photo(photo_path, caption):
             return {}
 
 def main():
-    market = input("Enter Market Name (e.g., USD/BDT (OTC)): ").strip()
-    timeframe = input("Enter Timeframe (e.g., 1m, 5m): ").strip()
+    print("ডাটাবেজ থেকে অ্যাক্টিভ মার্কেট লিস্ট লোড করা হচ্ছে...")
+    markets = get_active_markets()
+    if not markets:
+        print("কোনো অ্যাক্টিভ মার্কেট পাওয়া যায়নি বা কানেকশন এরর!")
+        return
+
+    print("\n--- AVAILABLE MARKETS ---")
+    for idx, m in enumerate(markets, 1):
+        otc_tag = " (OTC)" if m["type"] == "otc" and "(OTC)" not in m["name"] else ""
+        print(f"[{idx}] {m['name']}{otc_tag}")
+
+    # কিবোর্ড থেকে সংখ্যা সিলেক্ট করা হচ্ছে
+    while True:
+        try:
+            choice = int(input("\nSelect Market Number: "))
+            if 1 <= choice <= len(markets):
+                selected_market = markets[choice - 1]
+                break
+            else:
+                print("ভুল সংখ্যা! আবার চেষ্টা করুন।")
+        except ValueError:
+            print("অনুগ্রহ করে একটি সঠিক সংখ্যা টাইপ করুন।")
+
+    market_name = selected_market["name"]
+    market_path = selected_market["id"]
+    otc_tag = " (OTC)" if selected_market["type"] == "otc" and "(OTC)" not in market_name else ""
+    full_market_display = f"{market_name}{otc_tag}"
+
+    timeframe = input("Enter Timeframe (1m, 2m, 3m, 4m, 5m, 10m, 15m): ").strip().lower()
     direction = input("Enter Direction (BUY / SELL / CALL / PUT): ").strip().upper()
 
-    # ডাটাবেজ পাথ তৈরি
-    market_path = get_market_path(market)
+    if timeframe not in TF_MAP:
+        print("ভুল টাইমফ্রেম সিলেক্ট করা হয়েছে!")
+        return
 
-    # চার্ট জেনারেট করা হচ্ছে
-    print("ডাটাবেজ থেকে চার্ট ইমেজ তৈরি করা হচ্ছে...")
-    if not generate_chart_image(market_path):
-        print("ভুল মার্কেট নাম দেওয়া হয়েছে অথবা ডাটাবেজে এই মার্কেটের কোনো ডেটা নেই!")
+    tf_seconds = TF_MAP[timeframe]
+
+    # ক্যান্ডেল জেনারেট করা হচ্ছে
+    print(f"ডাটাবেজ থেকে '{full_market_display}' এর চার্ট ইমেজ তৈরি করা হচ্ছে...")
+    if not generate_chart_image(market_path, tf_seconds):
+        print("ডাটাবেজে এই মার্কেটের কোনো ক্যান্ডেল ডেটা পাওয়া যায়নি!")
         return
 
     if direction in ["BUY", "CALL", "UP"]:
@@ -128,7 +234,7 @@ def main():
     caption = (
         f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 *Asset:* {market.upper()}\n"
+        f"🎯 *Asset:* {full_market_display.upper()}\n"
         f"⏱ *Duration:* {timeframe.upper()}\n"
         f"🚀 *Action:* {direction_formatted}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
