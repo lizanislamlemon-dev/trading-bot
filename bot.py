@@ -1,148 +1,63 @@
 import os
 import time
-import re
 import requests
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 # --- কনফিগারেশন ---
 TELEGRAM_BOT_TOKEN = "6941432294:AAHNxdm6YPCtsZ4tZTYCVx8bylxhXRsT0Bw"
 TELEGRAM_CHAT_ID = "7504616242"
-FIREBASE_URL = "https://ictex-trade-default-rtdb.firebaseio.com"
 
-# টাইমফ্রেম সেকেন্ডস ম্যাপিং
-TF_MAP = {
-    "1m": 60,
-    "2m": 120,
-    "3m": 180,
-    "4m": 240,
-    "5m": 300,
-    "10m": 600,
-    "15m": 900
-}
-
-# মার্কেট আইডিকে ডাটাবেজ পাথে রূপান্তর করার ফাংশন (আপনার সার্ভার ফাইল অনুযায়ী)
-def get_market_path(market_id):
-    # ডট, স্ল্যাশ এবং স্পেসকে হাইফেন (-) দিয়ে পরিবর্তন করা হচ্ছে
-    cleaned = re.sub(r'[\.\/ ]', '-', market_id)
-    return cleaned.lower()
-
-# ১ মিনিটের ক্যান্ডেলকে রিকোয়েস্ট করা টাইমফ্রেমে রূপান্তর করার লজিক
-def aggregate_candles(candles, tf_seconds):
-    if tf_seconds == 60:
-        return candles
-        
-    aggregated = []
-    current_group = []
-    
-    for c in candles:
-        group_start = (c['timestamp'] // (tf_seconds * 1000)) * (tf_seconds * 1000)
-        
-        if current_group and current_group[0]['timestamp'] != group_start:
-            open_p = current_group[0]['open']
-            close_p = current_group[-1]['close']
-            high_p = max(item['high'] for item in current_group)
-            low_p = min(item['low'] for item in current_group)
-            
-            aggregated.append({
-                "timestamp": current_group[0]['timestamp'],
-                "open": open_p,
-                "high": high_p,
-                "low": low_p,
-                "close": close_p
-            })
-            current_group = []
-            
-        c_copy = c.copy()
-        c_copy['timestamp'] = group_start
-        current_group.append(c_copy)
-        
-    if current_group:
-        open_p = current_group[0]['open']
-        close_p = current_group[-1]['close']
-        high_p = max(item['high'] for item in current_group)
-        low_p = min(item['low'] for item in current_group)
-        aggregated.append({
-            "timestamp": current_group[0]['timestamp'],
-            "open": open_p,
-            "high": high_p,
-            "low": low_p,
-            "close": close_p
-        })
-        
-    return aggregated
-
-# সরাসরি ডাটাবেজ থেকে ক্যান্ডেল ডেটা নিয়ে চার্ট ইমেজ তৈরি করার ফাংশন
-def generate_chart_image(market_path, tf_seconds, output_path="chart_signal.png"):
-    # রিকোয়েস্ট করা টাইমফ্রেম অনুযায়ী পর্যাপ্ত ক্যান্ডেল নিয়ে আসা (সর্বোচ্চ ৪০টি বার দেখানোর জন্য)
-    limit_count = 40 * (tf_seconds // 60)
-    url = f"{FIREBASE_URL}/markets/{market_path}/candles/60s.json?orderBy=\"$key\"&limitToLast={limit_count}"
-    
-    try:
-        response = requests.get(url)
-        data = response.json()
-        if not data:
-            return False
-        
-        raw_candles = [data[key] for key in sorted(data.keys())]
-        # ক্যান্ডেলগুলোকে সিলেক্টেড টাইমফ্রেমে কনভার্ট করা
-        candles = aggregate_candles(raw_candles, tf_seconds)[-40:]
-    except Exception as e:
-        print(f"Data fetch error: {e}")
-        return False
-
-    # চার্টের সাইজ ও ব্যাকগ্রাউন্ড কালার নির্ধারণ
-    w, h = 800, 420
-    img = Image.new("RGB", (w, h), "#080B0F")
+# দৃষ্টিনন্দন প্রফেশনাল সিগন্যাল কার্ড (Image) তৈরি করার ফাংশন
+def generate_premium_signal_card(market, timeframe, direction, trade_time, output_path="signal_card.png"):
+    w, h = 800, 450
+    # ডার্ক থিম ব্যাকগ্রাউন্ড
+    img = Image.new("RGB", (w, h), "#080B11")
     draw = ImageDraw.Draw(img)
 
-    padding_right = 90
-    padding_top = 40
-    padding_bottom = 45
-    chart_w = w - padding_right
-    chart_h = h - padding_top - padding_bottom
+    # ডিরেকশন অনুযায়ী থিম কালার সিলেক্ট (সবুজ অথবা লাল)
+    is_up = direction.upper() in ["BUY", "CALL", "UP", "GREEN", "🟢"]
+    theme_color = "#0CCF56" if is_up else "#FF4D5E"
+    action_text = "CALL / BUY (UP)" if is_up else "PUT / SELL (DOWN)"
 
-    # সর্বোচ্চ ও সর্বনিম্ন প্রাইস বের করা
-    prices = [c['high'] for c in candles] + [c['low'] for c in candles]
-    min_p, max_p = min(prices), max(prices)
-    p_range = (max_p - min_p) or 0.0001
+    # সিস্টেমে থাকা ডেজাভু ফন্ট লোড করা (ফন্ট সাইজ সুন্দর করার জন্য)
+    try:
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        font_title = ImageFont.truetype(font_path, 22)
+        font_label = ImageFont.truetype(font_path, 15)
+        font_value = ImageFont.truetype(font_path, 34)
+        font_time = ImageFont.truetype(font_path, 40)
+    except:
+        font_title = font_label = font_value = font_time = ImageFont.load_default()
 
-    # ওপরে নিচে কিছুটা মার্জিন যোগ করা
-    min_p -= p_range * 0.1
-    max_p += p_range * 0.1
-    p_range = max_p - min_p
+    # ১. বাম পাশে প্রফেশনাল কালার বর্ডার আঁকা
+    draw.rectangle([0, 0, 18, h], fill=theme_color)
 
-    # গ্রিড লাইন এবং প্রাইস লেবেল আঁকা
-    grid_lines = 5
-    for i in range(grid_lines + 1):
-        y = padding_top + (i / grid_lines) * chart_h
-        price = max_p - (i / grid_lines) * p_range
-        draw.line([(0, y), (chart_w, y)], fill="#1C1F26", width=1)
-        draw.text((chart_w + 10, y - 6), f"{price:.5f}", fill="#707A8A")
+    # ২. চারপাশের সূক্ষ্ম ফ্রেম
+    draw.rectangle([40, 25, w - 25, h - 25], outline="#1F2937", width=2)
 
-    # ক্যান্ডেলস্টিক আঁকা (সবুজ ও লাল)
-    num_candles = len(candles)
-    candle_w = chart_w / num_candles
-    body_w = candle_w * 0.7
+    # ৩. হেডার টেক্সট
+    draw.text((60, 45), "⚡ ICTEX OFFICIAL VIP SIGNAL ⚡", fill="#707A8A", font=font_title)
 
-    for i, c in enumerate(candles):
-        x = i * candle_w + (candle_w / 2)
-        y_open = padding_top + ((max_p - c['open']) / p_range) * chart_h
-        y_close = padding_top + ((max_p - c['close']) / p_range) * chart_h
-        y_high = padding_top + ((max_p - c['high']) / p_range) * chart_h
-        y_low = padding_top + ((max_p - c['low']) / p_range) * chart_h
+    # ৪. মার্কেট ইনফো
+    draw.text((60, 105), "MARKET / ASSET", fill="#707A8A", font=font_label)
+    draw.text((60, 130), market.upper(), fill="#FFFFFF", font=font_value)
 
-        color = "#0CCF56" if c['close'] >= c['open'] else "#FF4D5E"
+    # ৫. টাইমফ্রেম
+    draw.text((60, 210), "TIMEFRAME", fill="#707A8A", font=font_label)
+    draw.text((60, 235), timeframe.upper(), fill="#3B82F6", font=font_value)
 
-        # শলতে (Wick) আঁকা
-        draw.line([(x, y_high), (x, y_low)], fill=color, width=2)
+    # ৬. ডিরেকশন / অ্যাকশন
+    draw.text((60, 315), "ACTION / DIRECTION", fill="#707A8A", font=font_label)
+    draw.text((60, 340), action_text, fill=theme_color, font=font_value)
 
-        # বডি (Body) আঁকা
-        y1, y2 = min(y_open, y_close), max(y_open, y_close)
-        if abs(y1 - y2) < 2:
-            y2 = y1 + 2
-        draw.rectangle([x - body_w/2, y1, x + body_w/2, y2], fill=color)
+    # ৭. ট্রেড নেওয়ার সময় (ডানপাশে গোল্ডেন কালার হাইলাইট)
+    draw.text((460, 210), "ENTRY TIME (CLOCK)", fill="#707A8A", font=font_label)
+    draw.text((460, 235), trade_time.upper(), fill="#FFC107", font=font_time)
 
-    # ইমেজটি সংরক্ষণ করা
+    # ৮. কোণায় ইন্ডিকেটর লাইট (গ্লো ইফেক্ট)
+    draw.ellipse([w - 65, 45, w - 45, 65], fill=theme_color)
+
+    # ইমেজটি সেভ করা
     img.save(output_path)
     return True
 
@@ -163,25 +78,15 @@ def send_telegram_photo(photo_path, caption):
             return {}
 
 def main():
-    # অ্যাডমিন প্যানেল থেকে সরাসরি ইনপুট নেওয়া হচ্ছে
-    market = input("Enter Market Name (e.g., USD/BDT (OTC) / USD BDT): ").strip()
-    timeframe = input("Enter Timeframe (1m, 2m, 3m, 4m, 5m, 10m, 15m): ").strip().lower()
+    # অ্যাডমিন প্যানেল থেকে ইনপুট
+    market = input("Enter Market Name (e.g., USD/BDT (OTC)): ").strip()
+    timeframe = input("Enter Timeframe (e.g., 1m, 5m): ").strip()
     direction = input("Enter Direction (BUY / SELL / CALL / PUT): ").strip().upper()
+    trade_time = input("Enter Entry Time (e.g., 10:45 PM): ").strip()
 
-    if timeframe not in TF_MAP:
-        print("ভুল টাইমফ্রেম সিলেক্ট করা হয়েছে!")
-        return
-
-    tf_seconds = TF_MAP[timeframe]
-    
-    # মার্কেট নামকে ডাটাবেজ পাথে কনভার্ট করা (যেমন: USD BDT -> usd-bdt)
-    market_path = get_market_path(market)
-
-    # ক্যান্ডেল জেনারেট করা হচ্ছে
-    print(f"ডাটাবেজ থেকে চার্ট ইমেজ তৈরি করা হচ্ছে...")
-    if not generate_chart_image(market_path, tf_seconds):
-        print("ভুল মার্কেট নাম দেওয়া হয়েছে অথবা ডাটাবেজে এই মার্কেটের কোনো ক্যান্ডেল ডেটা পাওয়া যায়নি!")
-        return
+    # ইমেজ কার্ড জেনারেট করা হচ্ছে
+    print("সিগন্যাল কার্ড ইমেজ তৈরি করা হচ্ছে...")
+    generate_premium_signal_card(market, timeframe, direction, trade_time)
 
     if direction in ["BUY", "CALL", "UP"]:
         direction_formatted = "🟢 *BUY / CALL (UP)* 📈"
@@ -197,14 +102,15 @@ def main():
         f"🎯 *Asset:* {market.upper()}\n"
         f"⏱ *Duration:* {timeframe.upper()}\n"
         f"🚀 *Action:* {direction_formatted}\n"
+        f"⏰ *Entry Time:* {trade_time.upper()}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"⚠️ _Proper money management ব্যবহার করুন।_"
     )
 
-    print("টেলিগ্রামে সিগন্যাল ও চার্ট পাঠানো হচ্ছে...")
-    res = send_telegram_photo("chart_signal.png", caption)
+    print("টেলিগ্রামে সিগন্যাল ও কার্ড পাঠানো হচ্ছে...")
+    res = send_telegram_photo("signal_card.png", caption)
     if res.get("ok"):
-        print("সফলভাবে টেলিগ্রামে সিগন্যাল ও চার্ট পাঠানো হয়েছে!")
+        print("সফলভাবে টেলিগ্রামে সিগন্যাল ও কার্ড পাঠানো হয়েছে!")
     else:
         print(f"ব্যর্থ হয়েছে: {res}")
 
