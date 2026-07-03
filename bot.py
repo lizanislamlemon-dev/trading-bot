@@ -1,5 +1,6 @@
 import os
 import time
+import re
 import requests
 from PIL import Image, ImageDraw
 
@@ -19,29 +20,11 @@ TF_MAP = {
     "15m": 900
 }
 
-# ডাটাবেজ থেকে অ্যাক্টিভ মার্কেট লিস্ট সংগ্রহ করা
-def get_active_markets():
-    url = f"{FIREBASE_URL}/admin/markets.json"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        if not data:
-            return []
-        
-        active_list = []
-        for m_id, m_info in data.items():
-            if m_info.get("status") == "active":
-                active_list.append({
-                    "id": m_id,
-                    "name": m_info.get("name", m_id),
-                    "type": m_info.get("type", "real")
-                })
-        # নাম অনুযায়ী বর্ণানুক্রমিকভাবে সাজানো
-        active_list.sort(key=lambda x: x["name"])
-        return active_list
-    except Exception as e:
-        print(f"Error fetching markets: {e}")
-        return []
+# মার্কেট আইডিকে ডাটাবেজ পাথে রূপান্তর করার ফাংশন (আপনার সার্ভার ফাইল অনুযায়ী)
+def get_market_path(market_id):
+    # ডট, স্ল্যাশ এবং স্পেসকে হাইফেন (-) দিয়ে পরিবর্তন করা হচ্ছে
+    cleaned = re.sub(r'[\.\/ ]', '-', market_id)
+    return cleaned.lower()
 
 # ১ মিনিটের ক্যান্ডেলকে রিকোয়েস্ট করা টাইমফ্রেমে রূপান্তর করার লজিক
 def aggregate_candles(candles, tf_seconds):
@@ -180,34 +163,8 @@ def send_telegram_photo(photo_path, caption):
             return {}
 
 def main():
-    print("ডাটাবেজ থেকে অ্যাক্টিভ মার্কেট লিস্ট লোড করা হচ্ছে...")
-    markets = get_active_markets()
-    if not markets:
-        print("কোনো অ্যাক্টিভ মার্কেট পাওয়া যায়নি বা কানেকশন এরর!")
-        return
-
-    print("\n--- AVAILABLE MARKETS ---")
-    for idx, m in enumerate(markets, 1):
-        otc_tag = " (OTC)" if m["type"] == "otc" and "(OTC)" not in m["name"] else ""
-        print(f"[{idx}] {m['name']}{otc_tag}")
-
-    # কিবোর্ড থেকে সংখ্যা সিলেক্ট করা হচ্ছে
-    while True:
-        try:
-            choice = int(input("\nSelect Market Number: "))
-            if 1 <= choice <= len(markets):
-                selected_market = markets[choice - 1]
-                break
-            else:
-                print("ভুল সংখ্যা! আবার চেষ্টা করুন।")
-        except ValueError:
-            print("অনুগ্রহ করে একটি সঠিক সংখ্যা টাইপ করুন।")
-
-    market_name = selected_market["name"]
-    market_path = selected_market["id"]
-    otc_tag = " (OTC)" if selected_market["type"] == "otc" and "(OTC)" not in market_name else ""
-    full_market_display = f"{market_name}{otc_tag}"
-
+    # অ্যাডমিন প্যানেল থেকে সরাসরি ইনপুট নেওয়া হচ্ছে
+    market = input("Enter Market Name (e.g., USD/BDT (OTC) / USD BDT): ").strip()
     timeframe = input("Enter Timeframe (1m, 2m, 3m, 4m, 5m, 10m, 15m): ").strip().lower()
     direction = input("Enter Direction (BUY / SELL / CALL / PUT): ").strip().upper()
 
@@ -216,11 +173,14 @@ def main():
         return
 
     tf_seconds = TF_MAP[timeframe]
+    
+    # মার্কেট নামকে ডাটাবেজ পাথে কনভার্ট করা (যেমন: USD BDT -> usd-bdt)
+    market_path = get_market_path(market)
 
     # ক্যান্ডেল জেনারেট করা হচ্ছে
-    print(f"ডাটাবেজ থেকে '{full_market_display}' এর চার্ট ইমেজ তৈরি করা হচ্ছে...")
+    print(f"ডাটাবেজ থেকে চার্ট ইমেজ তৈরি করা হচ্ছে...")
     if not generate_chart_image(market_path, tf_seconds):
-        print("ডাটাবেজে এই মার্কেটের কোনো ক্যান্ডেল ডেটা পাওয়া যায়নি!")
+        print("ভুল মার্কেট নাম দেওয়া হয়েছে অথবা ডাটাবেজে এই মার্কেটের কোনো ক্যান্ডেল ডেটা পাওয়া যায়নি!")
         return
 
     if direction in ["BUY", "CALL", "UP"]:
@@ -234,7 +194,7 @@ def main():
     caption = (
         f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 *Asset:* {full_market_display.upper()}\n"
+        f"🎯 *Asset:* {market.upper()}\n"
         f"⏱ *Duration:* {timeframe.upper()}\n"
         f"🚀 *Action:* {direction_formatted}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
