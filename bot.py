@@ -1,31 +1,91 @@
 import os
 import time
-import shutil
 import requests
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from PIL import Image, ImageDraw
 
-# --- আপনার দেওয়া ক্রেডেনশিয়াল ও কনফিগারেশন ---
+# --- কনফিগারেশন ---
 TELEGRAM_BOT_TOKEN = "6941432294:AAHNxdm6YPCtsZ4tZTYCVx8bylxhXRsT0Bw"
 TELEGRAM_CHAT_ID = "7504616242"
-SITE_URL = "https://ictex.iceiy.com"
-EMAIL = "mdg145712@gmail.com"
-PASSWORD = "nayem544"
+FIREBASE_URL = "https://ictex-trade-default-rtdb.firebaseio.com"
 
-# টাইমফ্রেম ম্যাপিং
-TF_MAP = {
-    "1m": "60",
-    "2m": "120",
-    "3m": "180",
-    "4m": "240",
-    "5m": "300",
-    "10m": "600",
-    "15m": "900"
-}
+# মার্কেট আইডিকে ডাটাবেজ পাথে রূপান্তর করার ফাংশন (আপনার সার্ভার ফাইল অনুযায়ী)
+def get_market_path(market_id):
+    return String_clean(market_id).replace(".", "-").replace("/", "-").replace(" ", "-").lower()
+
+def String_clean(val):
+    return str(val) if val is not None else ""
+
+# সরাসরি ডাটাবেজ থেকে ক্যান্ডেল ডেটা নিয়ে চার্ট ইমেজ তৈরি করার ফাংশন
+def generate_chart_image(market_path, output_path="chart_signal.png"):
+    # ফায়ারবেস থেকে শেষ ৪০টি ক্যান্ডেল রিড করা হচ্ছে
+    url = f"{FIREBASE_URL}/markets/{market_path}/candles/60s.json?orderBy=\"$key\"&limitToLast=40"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        if not data:
+            return False
+        
+        # টাইমস্ট্যাম্প অনুযায়ী ক্যান্ডেল সাজানো
+        candles = [data[key] for key in sorted(data.keys())]
+    except Exception as e:
+        print(f"Data fetch error: {e}")
+        return False
+
+    # চার্টের সাইজ ও ব্যাকগ্রাউন্ড কালার নির্ধারণ
+    w, h = 800, 420
+    img = Image.new("RGB", (w, h), "#080B0F")
+    draw = ImageDraw.Draw(img)
+
+    padding_right = 90
+    padding_top = 40
+    padding_bottom = 45
+    chart_w = w - padding_right
+    chart_h = h - padding_top - padding_bottom
+
+    # সর্বোচ্চ ও সর্বনিম্ন প্রাইস বের করা
+    prices = [c['high'] for c in candles] + [c['low'] for c in candles]
+    min_p, max_p = min(prices), max(prices)
+    p_range = (max_p - min_p) or 0.0001
+
+    # ওপরে নিচে কিছুটা মার্জিন যোগ করা
+    min_p -= p_range * 0.1
+    max_p += p_range * 0.1
+    p_range = max_p - min_p
+
+    # গ্রিড লাইন এবং প্রাইস লেবেল আঁকা
+    grid_lines = 5
+    for i in range(grid_lines + 1):
+        y = padding_top + (i / grid_lines) * chart_h
+        price = max_p - (i / grid_lines) * p_range
+        draw.line([(0, y), (chart_w, y)], fill="#1C1F26", width=1)
+        draw.text((chart_w + 10, y - 6), f"{price:.5f}", fill="#707A8A")
+
+    # ক্যান্ডেলস্টিক আঁকা (সবুজ ও লাল)
+    num_candles = len(candles)
+    candle_w = chart_w / num_candles
+    body_w = candle_w * 0.7
+
+    for i, c in enumerate(candles):
+        x = i * candle_w + (candle_w / 2)
+        y_open = padding_top + ((max_p - c['open']) / p_range) * chart_h
+        y_close = padding_top + ((max_p - c['close']) / p_range) * chart_h
+        y_high = padding_top + ((max_p - c['high']) / p_range) * chart_h
+        y_low = padding_top + ((max_p - c['low']) / p_range) * chart_h
+
+        color = "#0CCF56" if c['close'] >= c['open'] else "#FF4D5E"
+
+        # শলতে (Wick) আঁকা
+        draw.line([(x, y_high), (x, y_low)], fill=color, width=2)
+
+        # বডি (Body) আঁকা
+        y1, y2 = min(y_open, y_close), max(y_open, y_close)
+        if abs(y1 - y2) < 2:
+            y2 = y1 + 2
+        draw.rectangle([x - body_w/2, y1, x + body_w/2, y2], fill=color)
+
+    # ইমেজটি সংরক্ষণ করা
+    img.save(output_path)
+    return True
 
 def send_telegram_photo(photo_path, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
@@ -40,20 +100,23 @@ def send_telegram_photo(photo_path, caption):
             response = requests.post(url, files=files, data=data)
             return response.json()
         except Exception as e:
-            print(f"Telegram sending error: {e}")
+            print(f"Telegram error: {e}")
             return {}
 
 def main():
-    # অ্যাডমিন প্যানেল থেকে ইনপুট নেওয়া হচ্ছে
-    market = input("Enter Market Name (e.g., EUR/USD): ").strip()
-    timeframe = input("Enter Timeframe (1m, 2m, 3m, 4m, 5m, 10m, 15m): ").strip().lower()
-    direction = input("Enter Direction (BUY / SELL / CALL / PUT / UP / DOWN): ").strip().upper()
+    market = input("Enter Market Name (e.g., USD/BDT (OTC)): ").strip()
+    timeframe = input("Enter Timeframe (e.g., 1m, 5m): ").strip()
+    direction = input("Enter Direction (BUY / SELL / CALL / PUT): ").strip().upper()
 
-    if timeframe not in TF_MAP:
-        print("ভুল টাইমফ্রেম সিলেক্ট করা হয়েছে!")
+    # ডাটাবেজ পাথ তৈরি
+    market_path = get_market_path(market)
+
+    # চার্ট জেনারেট করা হচ্ছে
+    print("ডাটাবেজ থেকে চার্ট ইমেজ তৈরি করা হচ্ছে...")
+    if not generate_chart_image(market_path):
+        print("ভুল মার্কেট নাম দেওয়া হয়েছে অথবা ডাটাবেজে এই মার্কেটের কোনো ডেটা নেই!")
         return
 
-    # ডিরেকশন অনুযায়ী সুন্দর ইমোজি ও ফরম্যাটিং সেট করা
     if direction in ["BUY", "CALL", "UP"]:
         direction_formatted = "🟢 *BUY / CALL (UP)* 📈"
     elif direction in ["SELL", "PUT", "DOWN"]:
@@ -61,144 +124,23 @@ def main():
     else:
         direction_formatted = f"⚡ *{direction}*"
 
-    # ক্রোম ব্রাউজারের হেডলেস ও সিকিউরিটি অপশন কনফিগারেশন
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-setuid-sandbox")
-    chrome_options.add_argument("--remote-debugging-port=9222")
-    chrome_options.add_argument("--window-size=375,812") 
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
+    # টেলিগ্রাম মেসেজ সাজানো
+    caption = (
+        f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 *Asset:* {market.upper()}\n"
+        f"⏱ *Duration:* {timeframe.upper()}\n"
+        f"🚀 *Action:* {direction_formatted}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ _Proper money management ব্যবহার করুন।_"
+    )
 
-    # --- স্বয়ংক্রিয়ভাবে ক্রোমড্রাইভার লোকেশন খোঁজার লজিক ---
-    possible_paths = [
-        "/usr/bin/chromedriver",
-        "/usr/lib/chromium-browser/chromedriver",
-        "/usr/lib/chromium/chromedriver",
-        "/usr/bin/chromium-driver"
-    ]
-    driver_path = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            driver_path = path
-            break
-            
-    if not driver_path:
-        # সিস্টেম পাথে খোঁজা হচ্ছে
-        driver_path = shutil.which("chromedriver") or shutil.which("chromium-driver")
-
-    if not driver_path:
-        print("Error: আপনার সিস্টেমে ক্রোমড্রাইভার ফাইলটি খুঁজে পাওয়া যায়নি!")
-        return
-
-    print(f"ড্রাইভারের লোকেশন পাওয়া গেছে: {driver_path}")
-
-    # ড্রাইভার সার্ভিস চালু করা
-    service = Service(executable_path=driver_path)
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    wait = WebDriverWait(driver, 20)
-
-    try:
-        print("সাইটে প্রবেশ করা হচ্ছে...")
-        driver.get(SITE_URL)
-
-        print("লগইন করা হচ্ছে...")
-        email_input = wait.until(EC.presence_of_element_located((By.ID, "login-email")))
-        password_input = driver.find_element(By.ID, "login-password")
-        
-        email_input.send_keys(EMAIL)
-        password_input.send_keys(PASSWORD)
-        
-        login_button = driver.find_element(By.CSS_SELECTOR, "button.btn-submit-auth")
-        login_button.click()
-
-        print("ড্যাশবোর্ডের জন্য অপেক্ষা করা হচ্ছে...")
-        wait.until(EC.presence_of_element_located((By.ID, "market-selector-btn-new")))
-        time.sleep(3) 
-
-        print(f"মার্কেট নির্বাচন করা হচ্ছে: {market}")
-        market_btn = driver.find_element(By.ID, "market-selector-btn-new")
-        market_btn.click()
-
-        search_input = wait.until(EC.visibility_of_element_located((By.ID, "market-search-input")))
-        search_input.clear()
-        search_input.send_keys(market)
-        time.sleep(2) 
-
-        market_items = driver.find_elements(By.CSS_SELECTOR, ".market-option-item")
-        clicked = False
-        for item in market_items:
-            try:
-                name_el = item.find_element(By.CSS_SELECTOR, ".market-info-name")
-                if market.lower().replace("/", "") in name_el.text.lower().replace("/", ""):
-                    item.click()
-                    clicked = True
-                    break
-            except:
-                continue
-        
-        if not clicked:
-            print("সরাসরি নাম মেলেনি, প্রথম মার্কেটটি সিলেক্ট করা হচ্ছে...")
-            if market_items:
-                market_items[0].click()
-            else:
-                print("কোনো মার্কেট পাওয়া যায়নি।")
-                return
-
-        time.sleep(2)
-
-        # টাইমফ্রেম পরিবর্তন
-        print(f"টাইমফ্রেম পরিবর্তন করা হচ্ছে: {timeframe}")
-        tf_btn = wait.until(EC.element_to_be_clickable((By.ID, "chart-timeframe-btn")))
-        tf_btn.click()
-
-        tf_val = TF_MAP[timeframe]
-        tf_option = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, f"button[data-timeframe='{tf_val}']")))
-        tf_option.click()
-        time.sleep(2)
-
-        try:
-            driver.execute_script("document.getElementById('chart-display-options-modal').classList.remove('visible')")
-        except:
-            pass
-
-        print("ক্যান্ডেল লোড হওয়া পর্যন্ত অপেক্ষা করা হচ্ছে...")
-        try:
-            wait.until(EC.invisibility_of_element_located((By.ID, "chart-loader-overlay")))
-        except:
-            driver.execute_script("document.getElementById('chart-loader-overlay').style.display = 'none';")
-
-        time.sleep(6) 
-
-        # স্ক্রিনশট নেওয়া
-        screenshot_path = "chart_signal.png"
-        driver.save_screenshot(screenshot_path)
-        print("স্ক্রিনশট নেওয়া সম্পন্ন হয়েছে।")
-
-        # টেলিগ্রামের জন্য সিগন্যাল মেসেজ ফরম্যাটিং
-        caption = (
-            f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 *Asset:* {market.upper()}\n"
-            f"⏱ *Duration:* {timeframe.upper()}\n"
-            f"🚀 *Action:* {direction_formatted}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ _Proper money management ব্যবহার করুন।_"
-        )
-
-        print("টেলিগ্রামে সিগন্যাল পাঠানো হচ্ছে...")
-        res = send_telegram_photo(screenshot_path, caption)
-        if res.get("ok"):
-            print("সফলভাবে টেলিগ্রামে সিগন্যাল পাঠানো হয়েছে!")
-        else:
-            print(f"টেলিগ্রামে পাঠাতে ব্যর্থ হয়েছে: {res}")
-
-    except Exception as e:
-        print(f"ত্রুটি ঘটেছে: {e}")
-    finally:
-        driver.quit()
+    print("টেলিগ্রামে সিগন্যাল ও চার্ট পাঠানো হচ্ছে...")
+    res = send_telegram_photo("chart_signal.png", caption)
+    if res.get("ok"):
+        print("সফলভাবে টেলিগ্রামে সিগন্যাল ও চার্ট পাঠানো হয়েছে!")
+    else:
+        print(f"ব্যর্থ হয়েছে: {res}")
 
 if __name__ == "__main__":
     main()
