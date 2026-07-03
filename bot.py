@@ -4,6 +4,7 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -42,12 +43,22 @@ def send_telegram_photo(photo_path, caption):
             return {}
 
 def main():
+    # অ্যাডমিন প্যানেল থেকে ইনপুট নেওয়া হচ্ছে
     market = input("Enter Market Name (e.g., EUR/USD): ").strip()
     timeframe = input("Enter Timeframe (1m, 2m, 3m, 4m, 5m, 10m, 15m): ").strip().lower()
+    direction = input("Enter Direction (BUY / SELL / CALL / PUT / UP / DOWN): ").strip().upper()
 
     if timeframe not in TF_MAP:
         print("ভুল টাইমফ্রেম সিলেক্ট করা হয়েছে!")
         return
+
+    # ডিরেকশন অনুযায়ী ইমোজি ও সুন্দর ফরম্যাটিং সেট করা
+    if direction in ["BUY", "CALL", "UP"]:
+        direction_formatted = "🟢 *BUY / CALL (UP)* 📈"
+    elif direction in ["SELL", "PUT", "DOWN"]:
+        direction_formatted = "🔴 *SELL / PUT (DOWN)* 📉"
+    else:
+        direction_formatted = f"⚡ *{direction}*"
 
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -56,7 +67,9 @@ def main():
     chrome_options.add_argument("--window-size=375,812") 
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
 
-    driver = webdriver.Chrome(options=chrome_options)
+    # লোকাল ক্রোমড্রাইভার ব্যবহার করে মোবাইল আর্কিটেকচার এরর সমাধান করা হলো
+    service = Service(executable_path='/usr/bin/chromedriver')
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     wait = WebDriverWait(driver, 20)
 
     try:
@@ -135,8 +148,17 @@ def main():
         driver.save_screenshot(screenshot_path)
         print("স্ক্রিনশট নেওয়া সম্পন্ন হয়েছে।")
 
-        # টেলিগ্রামে পাঠানো
-        caption = f"🚨 *NEW TRADING SIGNAL* 🚨\n\n📌 *Asset:* {market.upper()}\n⏱ *Timeframe:* {timeframe.upper()}\n\n📊 চার্টের বর্তমান অবস্থা নিচে দেওয়া হলো:"
+        # টেলিগ্রামের জন্য সিগন্যাল মেসেজ সাজানো হচ্ছে
+        caption = (
+            f"📊 *ICTEX PREMIUM SIGNAL* 📊\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 *Asset:* {market.upper()}\n"
+            f"⏱ *Duration:* {timeframe.upper()}\n"
+            f"🚀 *Action:* {direction_formatted}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ _Proper money management ব্যবহার করুন।_"
+        )
+
         print("টেলিগ্রামে সিগন্যাল পাঠানো হচ্ছে...")
         res = send_telegram_photo(screenshot_path, caption)
         if res.get("ok"):
@@ -145,7 +167,7 @@ def main():
             print(f"টেলিগ্রামে পাঠাতে ব্যর্থ হয়েছে: {res}")
 
     except Exception as e:
-        print(f" can't run properly: {e}")
+        print(f"ত্রুটি ঘটেছে: {e}")
     finally:
         driver.quit()
 
